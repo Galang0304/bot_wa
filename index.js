@@ -346,23 +346,30 @@ function initializeClient() {
         await handleMessage(msg);
     });
 
-    client.on('auth_failure', (err) => {
-        console.error('❌ Autentikasi gagal:', err);
-        io.emit('auth-failure', err);
-    });
-
-    client.on('disconnected', (reason) => {
+    client.on('disconnected', async (reason) => {
         console.log('❌ Terputus:', reason);
         isReady = false;
         isBroadcasting = false;  // Stop broadcast jika disconnect
         io.emit('disconnected', reason);
         
-        // Auto restart setelah 5 detik
-        console.log('🔄 Mencoba reconnect dalam 5 detik...');
-        setTimeout(() => {
-            console.log('🔄 Reconnecting...');
-            client.initialize();
-        }, 5000);
+        // Auto restart
+        await restartBot();
+    });
+
+    client.on('auth_failure', async (err) => {
+        console.error('❌ Autentikasi gagal:', err);
+        io.emit('auth-failure', err);
+        
+        // Hapus sesi lama dan restart
+        console.log('🗑️ Menghapus sesi lama...');
+        try {
+            const authPath = path.join(__dirname, '.wwebjs_auth');
+            if (fs.existsSync(authPath)) {
+                fs.rmSync(authPath, { recursive: true, force: true });
+            }
+        } catch(e) {}
+        
+        await restartBot();
     });
 
     console.log('⏳ Memulai WhatsApp Web...');
@@ -1068,6 +1075,56 @@ io.on('connection', (socket) => {
 });
 
 // ==========================================
+// AUTO RESTART & ERROR HANDLING
+// ==========================================
+let restartCount = 0;
+const MAX_RESTART = 10;
+const RESTART_DELAY = 10000; // 10 detik
+
+async function restartBot() {
+    if (restartCount >= MAX_RESTART) {
+        console.log('❌ Sudah restart terlalu banyak! Manual restart diperlukan.');
+        return;
+    }
+    
+    restartCount++;
+    console.log(`🔄 Auto restart (${restartCount}/${MAX_RESTART}) dalam 10 detik...`);
+    
+    // Destroy client lama jika ada
+    try {
+        if (client) {
+            await client.destroy();
+        }
+    } catch(e) {
+        console.log('⚠️ Error destroy client:', e.message);
+    }
+    
+    // Reset state
+    isReady = false;
+    isBroadcasting = false;
+    client = null;
+    
+    // Tunggu dan restart
+    await sleep(RESTART_DELAY);
+    console.log('🚀 Memulai ulang bot...');
+    initializeClient();
+}
+
+// Handle uncaught exception (crash)
+process.on('uncaughtException', async (err) => {
+    console.error('💥 CRASH ERROR:', err.message);
+    log('💥 CRASH: ' + err.message);
+    await restartBot();
+});
+
+// Handle unhandled promise rejection
+process.on('unhandledRejection', async (reason, promise) => {
+    console.error('💥 UNHANDLED REJECTION:', reason);
+    log('💥 REJECTION: ' + reason);
+    // Tidak restart untuk rejection, hanya log
+});
+
+// ==========================================
 // MAIN
 // ==========================================
 console.log('');
@@ -1089,10 +1146,24 @@ server.listen(WEB_PORT, () => {
 // Start WhatsApp
 initializeClient();
 
+// Reset restart count setiap 1 jam jika berjalan normal
+setInterval(() => {
+    if (isReady && restartCount > 0) {
+        restartCount = 0;
+        console.log('✅ Reset restart counter (bot stabil)');
+    }
+}, 3600000); // 1 jam
+
 // Handle exit
 process.on('SIGINT', async () => {
     console.log('\n👋 Menutup bot...');
     console.log(`📊 Total nomor: ${uniqueNumbers.size}`);
+    if (client) await client.destroy();
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\n👋 SIGTERM received, menutup bot...');
     if (client) await client.destroy();
     process.exit(0);
 });
