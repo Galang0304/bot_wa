@@ -14,7 +14,7 @@ const readline = require('readline');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const WEB_PORT = 3000;
+const WEB_PORT = process.env.PORT || 3001;
 
 // ==========================================
 // FILE PATHS
