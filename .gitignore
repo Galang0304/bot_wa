@@ -1,0 +1,9 @@
+node_modules/
+.wwebjs_auth/
+.wwebjs_cache/
+nomor_telepon.txt
+nomor_unik.txt
+nomor_terkirim.txt
+pesan_broadcast.txt
+broadcast_log.txt
+package-lock.json
